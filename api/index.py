@@ -10,7 +10,7 @@ from telegram.constants import ParseMode
 # ===== KONFIGURASI =====
 TOKEN = "8590296376:AAHLIzJxaftbJaqO92EZP41p10DRi78XeEY"
 ADMIN_ID = 6201552432
-CHANNEL_ID = "@anakkandids"  // GANTI DENGAN CHANNEL ANDA
+CHANNEL_ID = "@dimzmodsofc"  # SUDAH DIGANTI DENGAN CHANNEL ANDA
 
 # ===== LOGGING =====
 logging.basicConfig(
@@ -170,6 +170,7 @@ class handler(BaseHTTPRequestHandler):
             <body>
                 <h1>🤖 Bot Feedback Aktif!</h1>
                 <p>Bot berjalan normal.</p>
+                <p>Channel: @dimzmodsofc</p>
             </body>
         </html>
         ''')
