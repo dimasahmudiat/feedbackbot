@@ -1,176 +1,314 @@
-import os
 import json
 import logging
-import asyncio
+import os
+import sys
 from http.server import BaseHTTPRequestHandler
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram.constants import ParseMode
+from typing import Any, Dict
 
-# ===== KONFIGURASI =====
-TOKEN = "8590296376:AAHLIzJxaftbJaqO92EZP41p10DRi78XeEY"
-ADMIN_ID = 6201552432
-CHANNEL_ID = "@dimzmodsofc"  # SUDAH DIGANTI DENGAN CHANNEL ANDA
-
-# ===== LOGGING =====
+# Konfigurasi logging
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Inisialisasi Application
-application = Application.builder().token(TOKEN).build()
+# ===== KONFIGURASI BOT =====
+BOT_TOKEN = "8590296376:AAHLIzJxaftbJaqO92EZP41p10DRi78XeEY"
+ADMIN_ID = 6201552432
+CHANNEL_USERNAME = "@dimzmodsofc"  # Ganti dengan channel Anda
 
-# ===== HANDLER FUNCTIONS =====
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk perintah /start"""
-    user = update.effective_user
-    
-    welcome_msg = f"""
-🎉 *Selamat Datang di Bot Feedback Channel!* 🎉
-
-Halo {user.first_name}! 👋
-
-Bot ini dibuat khusus untuk mengirim feedback ke channel kami. 
-Kamu bisa mengirim berbagai jenis konten:
-
-📝 *Fitur yang tersedia:*
-• 📷 Foto dengan caption
-• 🎥 Video dengan caption
-• 📎 File dokumen
-• 🎵 Audio / Voice Note
-• 📍 Lokasi
-• 💬 Teks biasa
-
-📌 *Cara menggunakan:*
-Kirim langsung pesan/feedback kamu ke bot ini, 
-dan akan langsung diteruskan ke admin channel!
-
-Terima kasih atas partisipasinya! 🙏
-"""
-    
-    keyboard = [
-        [InlineKeyboardButton("📢 Lihat Channel", url=f"https://t.me/{CHANNEL_ID.replace('@', '')}")],
-        [InlineKeyboardButton("📞 Hubungi Admin", url=f"tg://user?id={ADMIN_ID}")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        welcome_msg,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=reply_markup
-    )
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler untuk semua jenis pesan"""
-    user = update.effective_user
-    user_id = user.id
-    username = user.username or "Tidak ada username"
-    first_name = user.first_name
-    
-    # Konfirmasi ke pengirim
-    await update.message.reply_text(
-        "✅ *Pesan kamu telah diterima dan akan diteruskan ke admin!*\nTerima kasih atas feedbacknya 🙏",
-        parse_mode=ParseMode.MARKDOWN
-    )
-    
-    # Header pesan untuk admin
-    header = f"""
-📨 *PESAN FEEDBACK BARU*
-━━━━━━━━━━━━━━━━
-👤 *Nama:* {first_name}
-🆔 *User ID:* `{user_id}`
-👥 *Username:* @{username if username != 'Tidak ada username' else '-'}
-━━━━━━━━━━━━━━━━
-"""
-    
+# ===== FUNGSI KIRIM KE TELEGRAM =====
+def send_telegram_message(chat_id: int, text: str, parse_mode: str = "Markdown") -> Dict[str, Any]:
+    """Kirim pesan teks ke Telegram"""
+    import requests
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode
+    }
     try:
-        # KIRIM KE ADMIN
-        if update.message.text:
-            caption = f"{header}\n💬 *Pesan:*\n{update.message.text}"
-            await context.bot.send_message(chat_id=ADMIN_ID, text=caption, parse_mode=ParseMode.MARKDOWN)
-            
-        elif update.message.photo:
-            photo = update.message.photo[-1]
-            caption_text = update.message.caption or "Tidak ada caption"
-            caption = f"{header}\n📷 *Foto*\n📝 *Caption:* {caption_text}"
-            await context.bot.send_photo(chat_id=ADMIN_ID, photo=photo.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
-            
-        elif update.message.video:
-            caption_text = update.message.caption or "Tidak ada caption"
-            caption = f"{header}\n🎥 *Video*\n📝 *Caption:* {caption_text}"
-            await context.bot.send_video(chat_id=ADMIN_ID, video=update.message.video.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
-            
-        elif update.message.document:
-            caption_text = update.message.caption or "Tidak ada caption"
-            caption = f"{header}\n📎 *Dokumen*\n📝 *Caption:* {caption_text}"
-            await context.bot.send_document(chat_id=ADMIN_ID, document=update.message.document.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
-            
-        elif update.message.audio:
-            caption_text = update.message.caption or "Tidak ada caption"
-            caption = f"{header}\n🎵 *Audio*\n📝 *Caption:* {caption_text}"
-            await context.bot.send_audio(chat_id=ADMIN_ID, audio=update.message.audio.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
-            
-        elif update.message.voice:
-            caption = f"{header}\n🎤 *Voice Note*"
-            await context.bot.send_voice(chat_id=ADMIN_ID, voice=update.message.voice.file_id, caption=caption, parse_mode=ParseMode.MARKDOWN)
-            
-        elif update.message.location:
-            location = update.message.location
-            await context.bot.send_location(chat_id=ADMIN_ID, latitude=location.latitude, longitude=location.longitude)
-            await context.bot.send_message(chat_id=ADMIN_ID, text=f"{header}\n📍 *Lokasi*", parse_mode=ParseMode.MARKDOWN)
-            
-        else:
-            await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=user_id, message_id=update.message.message_id)
-            await context.bot.send_message(chat_id=ADMIN_ID, text=f"{header}\n🔄 *Pesan Diteruskan*", parse_mode=ParseMode.MARKDOWN)
-            
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json()
     except Exception as e:
-        logger.error(f"Error: {e}")
-        await update.message.reply_text("❌ Maaf, terjadi kesalahan. Silakan coba lagi.")
+        logger.error(f"Gagal kirim pesan: {e}")
+        return {"ok": False, "error": str(e)}
 
-# Register handlers
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.ALL, handle_message))
+def send_telegram_photo(chat_id: int, photo_id: str, caption: str = "") -> Dict[str, Any]:
+    """Kirim foto ke Telegram"""
+    import requests
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    payload = {
+        "chat_id": chat_id,
+        "photo": photo_id,
+        "caption": caption,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Gagal kirim foto: {e}")
+        return {"ok": False, "error": str(e)}
 
-# ===== VERCEL HANDLER =====
+def send_telegram_video(chat_id: int, video_id: str, caption: str = "") -> Dict[str, Any]:
+    """Kirim video ke Telegram"""
+    import requests
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
+    payload = {
+        "chat_id": chat_id,
+        "video": video_id,
+        "caption": caption,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Gagal kirim video: {e}")
+        return {"ok": False, "error": str(e)}
+
+def send_telegram_document(chat_id: int, document_id: str, caption: str = "") -> Dict[str, Any]:
+    """Kirim dokumen ke Telegram"""
+    import requests
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+    payload = {
+        "chat_id": chat_id,
+        "document": document_id,
+        "caption": caption,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Gagal kirim dokumen: {e}")
+        return {"ok": False, "error": str(e)}
+
+def send_telegram_audio(chat_id: int, audio_id: str, caption: str = "") -> Dict[str, Any]:
+    """Kirim audio ke Telegram"""
+    import requests
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendAudio"
+    payload = {
+        "chat_id": chat_id,
+        "audio": audio_id,
+        "caption": caption,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Gagal kirim audio: {e}")
+        return {"ok": False, "error": str(e)}
+
+def send_telegram_voice(chat_id: int, voice_id: str, caption: str = "") -> Dict[str, Any]:
+    """Kirim voice ke Telegram"""
+    import requests
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVoice"
+    payload = {
+        "chat_id": chat_id,
+        "voice": voice_id,
+        "caption": caption,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Gagal kirim voice: {e}")
+        return {"ok": False, "error": str(e)}
+
+def send_telegram_location(chat_id: int, latitude: float, longitude: float) -> Dict[str, Any]:
+    """Kirim lokasi ke Telegram"""
+    import requests
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendLocation"
+    payload = {
+        "chat_id": chat_id,
+        "latitude": latitude,
+        "longitude": longitude
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json()
+    except Exception as e:
+        logger.error(f"Gagal kirim lokasi: {e}")
+        return {"ok": False, "error": str(e)}
+
+# ===== HANDLER UTAMA VERCEL =====
 class handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        content_length = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(content_length)
+    def do_GET(self):
+        """Handler untuk GET request"""
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=utf-8')
+        self.end_headers()
         
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Bot Feedback Channel</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
+                .container {{ max-width: 600px; margin: 0 auto; background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; backdrop-filter: blur(10px); }}
+                h1 {{ font-size: 2.5em; margin-bottom: 20px; }}
+                .status {{ background: #4CAF50; color: white; padding: 10px; border-radius: 5px; display: inline-block; }}
+                .info {{ margin-top: 30px; text-align: left; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🤖 Bot Feedback Channel</h1>
+                <div class="status">✅ BOT AKTIF & STABIL</div>
+                <div class="info">
+                    <p><strong>Channel:</strong> {CHANNEL_USERNAME}</p>
+                    <p><strong>Admin ID:</strong> {ADMIN_ID}</p>
+                    <p><strong>Python Version:</strong> {sys.version}</p>
+                    <p><strong>Status:</strong> Siap menerima pesan!</p>
+                </div>
+                <p>Kirim pesan ke bot Telegram untuk testing</p>
+            </div>
+        </body>
+        </html>
+        """
+        self.wfile.write(html.encode('utf-8'))
+    
+    def do_POST(self):
+        """Handler untuk POST request dari Telegram"""
         try:
-            # Parse update dari Telegram
-            update = Update.de_json(json.loads(post_data.decode('utf-8')), application.bot)
+            # Baca data dari Telegram
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            update = json.loads(post_data.decode('utf-8'))
+            
+            logger.info(f"Received update: {json.dumps(update)[:200]}...")
             
             # Proses update
-            asyncio.run(application.process_update(update))
+            success = self.process_update(update)
             
-            # Kirim response sukses
+            # Selalu return 200 ke Telegram
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({'status': 'ok'}).encode('utf-8'))
+            self.wfile.write(json.dumps({'ok': True}).encode('utf-8'))
             
         except Exception as e:
-            logger.error(f"Error: {e}")
-            self.send_response(500)
+            logger.error(f"Error processing update: {e}")
+            # Tetap return 200 agar Telegram tidak mengirim ulang
+            self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({'status': 'error'}).encode('utf-8'))
+            self.wfile.write(json.dumps({'ok': True, 'error': str(e)}).encode('utf-8'))
     
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
-        self.wfile.write(b'''
-        <html>
-            <head><title>Bot Feedback</title></head>
-            <body>
-                <h1>🤖 Bot Feedback Aktif!</h1>
-                <p>Bot berjalan normal.</p>
-                <p>Channel: @dimzmodsofc</p>
-            </body>
-        </html>
-        ''')
+    def process_update(self, update: Dict[str, Any]) -> bool:
+        """Proses update dari Telegram"""
+        try:
+            # Ambil informasi pesan
+            message = update.get('message', {})
+            chat = message.get('chat', {})
+            user = message.get('from', {})
+            
+            user_id = user.get('id', 0)
+            username = user.get('username', 'no_username')
+            first_name = user.get('first_name', 'User')
+            text = message.get('text', '')
+            
+            # Handle /start command
+            if text == '/start':
+                welcome_text = f"""
+🎉 *Selamat Datang di Bot Feedback Channel!* 🎉
+
+Halo {first_name}! 👋
+
+Bot ini dibuat untuk mengirim feedback ke channel *{CHANNEL_USERNAME}*
+
+📝 *Fitur:*
+• Kirim teks, foto, video, dokumen
+• Audio, voice note, lokasi
+• Auto-forward ke admin
+
+📌 *Cara pakai:*
+Kirim langsung pesan kamu ke bot ini!
+                """
+                
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "📢 Lihat Channel", "url": f"https://t.me/{CHANNEL_USERNAME[1:]}"},
+                            {"text": "📞 Admin", "url": f"tg://user?id={ADMIN_ID}"}
+                        ]
+                    ]
+                }
+                
+                # Kirim pesan dengan keyboard
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                payload = {
+                    "chat_id": user_id,
+                    "text": welcome_text,
+                    "parse_mode": "Markdown",
+                    "reply_markup": keyboard
+                }
+                
+                import requests
+                requests.post(url, json=payload, timeout=10)
+                return True
+            
+            # Untuk pesan biasa, forward ke admin
+            if user_id != ADMIN_ID:  # Jangan forward pesan admin ke diri sendiri
+                # Header untuk admin
+                header = f"""
+📨 *FEEDBACK BARU*
+👤 {first_name} (@{username})
+🆔 `{user_id}`
+━━━━━━━━━━━━━━━━
+                """
+                
+                # Cek jenis pesan
+                if 'text' in message:
+                    # Pesan teks
+                    send_telegram_message(ADMIN_ID, f"{header}\n💬 *Pesan:*\n{text}")
+                    
+                elif 'photo' in message:
+                    # Pesan foto
+                    photo = message['photo'][-1]['file_id']
+                    caption = message.get('caption', 'Tidak ada caption')
+                    send_telegram_photo(ADMIN_ID, photo, f"{header}\n📷 *Foto*\n📝 *Caption:* {caption}")
+                    
+                elif 'video' in message:
+                    # Pesan video
+                    video = message['video']['file_id']
+                    caption = message.get('caption', 'Tidak ada caption')
+                    send_telegram_video(ADMIN_ID, video, f"{header}\n🎥 *Video*\n📝 *Caption:* {caption}")
+                    
+                elif 'document' in message:
+                    # Pesan dokumen
+                    document = message['document']['file_id']
+                    caption = message.get('caption', 'Tidak ada caption')
+                    send_telegram_document(ADMIN_ID, document, f"{header}\n📎 *Dokumen*\n📝 *Caption:* {caption}")
+                    
+                elif 'audio' in message:
+                    # Pesan audio
+                    audio = message['audio']['file_id']
+                    caption = message.get('caption', 'Tidak ada caption')
+                    send_telegram_audio(ADMIN_ID, audio, f"{header}\n🎵 *Audio*\n📝 *Caption:* {caption}")
+                    
+                elif 'voice' in message:
+                    # Pesan voice
+                    voice = message['voice']['file_id']
+                    send_telegram_voice(ADMIN_ID, voice, f"{header}\n🎤 *Voice Note*")
+                    
+                elif 'location' in message:
+                    # Pesan lokasi
+                    lat = message['location']['latitude']
+                    lon = message['location']['longitude']
+                    send_telegram_location(ADMIN_ID, lat, lon)
+                    send_telegram_message(ADMIN_ID, f"{header}\n📍 *Lokasi*")
+                
+                # Konfirmasi ke pengirim
+                send_telegram_message(user_id, "✅ *Pesan diterima!* Admin akan segera merespon. Terima kasih! 🙏")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in process_update: {e}")
+            return False
