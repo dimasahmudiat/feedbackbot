@@ -1,15 +1,20 @@
 import json
 import logging
-import os
 import sys
 import requests
 from http.server import BaseHTTPRequestHandler
-from typing import Any, Dict
+from typing import Dict, Any, List
 
 # ===== KONFIGURASI =====
 BOT_TOKEN = "8590296376:AAHLIzJxaftbJaqO92EZP41p10DRi78XeEY"
-CHANNEL_ID = "@dimzmodsofc"  # CHANNEL TUJUAN (GANTI DENGAN CHANNEL ANDA)
-ADMIN_ID = 6201552432  # Admin untuk notifikasi (opsional)
+
+# ===== DAFTAR CHANNEL TUJUAN =====
+CHANNELS = [
+    "@dimzmodsofc",      # Channel 1
+    "@cheatvipdimz"      # Channel 2 (TAMBAHAN)
+]
+
+ADMIN_ID = 6201552432  # ID Admin untuk notifikasi
 
 # ===== LOGGING =====
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -37,45 +42,84 @@ def send_message(chat_id: int, text: str, parse_mode: str = "Markdown", keyboard
         payload["reply_markup"] = keyboard
     return telegram_request("sendMessage", payload)
 
-def copy_message_to_channel(from_chat_id: int, message_id: int) -> Dict:
-    """Copy pesan ke channel (lebih baik dari forward)"""
+def copy_message_to_channel(channel_id: str, from_chat_id: int, message_id: int) -> Dict:
+    """Copy pesan ke satu channel"""
     payload = {
-        "chat_id": CHANNEL_ID,
+        "chat_id": channel_id,
         "from_chat_id": from_chat_id,
         "message_id": message_id
     }
     return telegram_request("copyMessage", payload)
 
+def copy_message_to_all_channels(from_chat_id: int, message_id: int) -> List[Dict]:
+    """Copy pesan ke SEMUA channel sekaligus"""
+    results = []
+    for channel in CHANNELS:
+        try:
+            result = copy_message_to_channel(channel, from_chat_id, message_id)
+            results.append({
+                "channel": channel,
+                "success": result.get("ok", False),
+                "result": result
+            })
+            logger.info(f"Kirim ke {channel}: {'✅' if result.get('ok') else '❌'}")
+        except Exception as e:
+            results.append({
+                "channel": channel,
+                "success": False,
+                "error": str(e)
+            })
+    return results
+
 # ===== HANDLER VERCEL =====
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        """Tampilkan status bot"""
+        """Tampilkan status bot dengan daftar channel"""
         self.send_response(200)
         self.send_header('Content-type', 'text/html; charset=utf-8')
         self.end_headers()
+        
+        # Buat list channel HTML
+        channels_html = ""
+        for ch in CHANNELS:
+            channels_html += f'<li><a href="https://t.me/{ch[1:]}" target="_blank">{ch}</a> ✅ Aktif</li>'
         
         html = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Bot Feedback Channel</title>
+            <title>Bot Feedback Multi Channel</title>
             <style>
-                body {{ font-family: Arial; text-align: center; padding: 50px; background: #1a1a1a; color: white; }}
-                .container {{ max-width: 600px; margin: 0 auto; background: #2d2d2d; padding: 30px; border-radius: 10px; }}
-                .status {{ color: #4CAF50; font-size: 1.2em; }}
-                .channel {{ background: #363636; padding: 10px; border-radius: 5px; margin: 20px 0; }}
+                body {{ font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
+                .container {{ max-width: 600px; margin: 0 auto; background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; backdrop-filter: blur(10px); }}
+                h1 {{ font-size: 2.5em; margin-bottom: 10px; }}
+                .status {{ background: #4CAF50; color: white; padding: 10px; border-radius: 5px; display: inline-block; margin-bottom: 20px; }}
+                .channels {{ text-align: left; background: rgba(0,0,0,0.2); padding: 20px; border-radius: 10px; margin: 20px 0; }}
+                .channels ul {{ list-style-type: none; padding: 0; }}
+                .channels li {{ padding: 10px; margin: 5px 0; background: rgba(255,255,255,0.1); border-radius: 5px; }}
+                .channels a {{ color: #FFD700; text-decoration: none; }}
+                .footer {{ margin-top: 30px; font-size: 0.8em; opacity: 0.8; }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>🤖 Bot Feedback Channel</h1>
-                <div class="status">✅ BOT AKTIF</div>
-                <div class="channel">
-                    <strong>Channel Tujuan:</strong> {CHANNEL_ID}<br>
-                    <a href="https://t.me/{CHANNEL_ID[1:]}" style="color: #4CAF50;">Kunjungi Channel</a>
+                <h1>🤖 Bot Feedback Multi Channel</h1>
+                <div class="status">✅ BOT AKTIF - {len(CHANNELS)} CHANNEL</div>
+                
+                <div class="channels">
+                    <h3>📢 Channel Tujuan:</h3>
+                    <ul>
+                        {channels_html}
+                    </ul>
                 </div>
-                <p>Bot akan meneruskan semua pesan ke channel di atas</p>
-                <small>Python: {sys.version[:50]}</small>
+                
+                <p>📝 Setiap pesan yang dikirim ke bot akan otomatis tampil di SEMUA channel di atas</p>
+                <p>👤 Admin ID: <code>{ADMIN_ID}</code></p>
+                
+                <div class="footer">
+                    Python: {sys.version[:50]}<br>
+                    Total Channel: {len(CHANNELS)}
+                </div>
             </div>
         </body>
         </html>
@@ -85,17 +129,16 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         """Terima webhook dari Telegram"""
         try:
-            # Baca data
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             update = json.loads(post_data.decode('utf-8'))
             
-            logger.info(f"Update: {update.get('update_id')}")
+            logger.info(f"Update ID: {update.get('update_id')}")
             
             # Proses update
             self.process_update(update)
             
-            # Selalu return 200
+            # Return 200 OK
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -113,8 +156,8 @@ class handler(BaseHTTPRequestHandler):
             if not message:
                 return
             
-            chat = message.get('chat', {})
             user = message.get('from', {})
+            chat = message.get('chat', {})
             
             user_id = user.get('id')
             username = user.get('username', 'no_username')
@@ -123,62 +166,96 @@ class handler(BaseHTTPRequestHandler):
             
             # ===== COMMAND /start =====
             if text == '/start':
+                # Buat daftar channel untuk ditampilkan
+                channels_list = "\n".join([f"• {ch}" for ch in CHANNELS])
+                
                 welcome = f"""
-🎉 *Selamat Datang!* 🎉
+🎉 *Selamat Datang di Bot Feedback!* 🎉
 
-Halo {first_name}!
+Halo {first_name}! 👋
 
-Bot ini adalah bot feedback untuk channel *{CHANNEL_ID}*
+Bot ini akan meneruskan pesan kamu ke *{len(CHANNELS)} channel* sekaligus:
+
+{channels_list}
 
 📝 *Cara penggunaan:*
 Kirim pesan, foto, video, atau file apapun ke bot ini
-Maka akan otomatis tampil di channel!
+Maka akan otomatis tampil di SEMUA channel di atas!
 
 Terima kasih atas partisipasinya! 🙏
                 """
                 
-                keyboard = {
-                    "inline_keyboard": [[
-                        {"text": "📢 Lihat Channel", "url": f"https://t.me/{CHANNEL_ID[1:]}"}
-                    ]]
-                }
+                # Buat tombol untuk semua channel
+                buttons = []
+                for ch in CHANNELS:
+                    buttons.append([{
+                        "text": f"📢 {ch}",
+                        "url": f"https://t.me/{ch[1:]}"
+                    }])
+                
+                keyboard = {"inline_keyboard": buttons}
                 
                 send_message(user_id, welcome, keyboard=keyboard)
                 return
             
-            # ===== FORWARD KE CHANNEL =====
-            # Cek apakah ini bukan pesan dari channel sendiri
-            if str(user_id) != str(CHANNEL_ID).replace('@', ''):
+            # ===== FORWARD KE SEMUA CHANNEL =====
+            # Cek apakah ini bukan pesan dari bot sendiri
+            if str(user_id) != str(BOT_TOKEN).split(':')[0]:
                 
-                # Copy pesan ke channel
-                result = copy_message_to_channel(user_id, message['message_id'])
+                # Kirim ke SEMUA channel
+                results = copy_message_to_all_channels(user_id, message['message_id'])
                 
-                if result.get('ok'):
-                    # Konfirmasi ke pengirim
-                    confirm = f"✅ *Pesan berhasil dikirim ke channel*\n\nChannel: {CHANNEL_ID}"
-                    send_message(user_id, confirm)
-                    
-                    # Notifikasi ke admin (opsional)
-                    admin_msg = f"""
-📨 *Pesan masuk ke channel*
-👤 {first_name} (@{username})
-🆔 `{user_id}`
-📝 Lihat di channel: {CHANNEL_ID}
+                # Hitung sukses dan gagal
+                success_count = sum(1 for r in results if r['success'])
+                failed_count = len(results) - success_count
+                
+                # Konfirmasi ke pengirim
+                if success_count > 0:
+                    confirm = f"""
+✅ *Pesan berhasil dikirim!*
+
+📊 *Statistik:*
+• Berhasil: {success_count} channel
+• Gagal: {failed_count} channel
+
+Terima kasih atas feedbacknya! 🙏
                     """
-                    send_message(ADMIN_ID, admin_msg)
+                    
+                    # Tambah daftar channel yang berhasil
+                    if success_count > 0:
+                        confirm += "\n\n📢 *Channel tujuan:*\n"
+                        for r in results:
+                            if r['success']:
+                                confirm += f"✓ {r['channel']}\n"
+                    
+                    send_message(user_id, confirm)
                 else:
-                    # Gagal - mungkin bot tidak punya akses ke channel
                     error_msg = """
-❌ *Gagal mengirim ke channel*
+❌ *Gagal mengirim pesan*
 
-Kemungkinan:
-• Bot belum ditambahkan sebagai admin channel
-• Channel tidak ditemukan
-
-Hubungi admin untuk memperbaiki
+Tidak ada channel yang menerima pesan.
+Hubungi admin untuk memperbaiki.
                     """
                     send_message(user_id, error_msg)
-                    send_message(ADMIN_ID, f"🚨 ERROR: Bot tidak bisa kirim ke {CHANNEL_ID}. Cek akses bot!")
+                
+                # Notifikasi ke admin (ringkasan)
+                admin_msg = f"""
+📨 *Pesan masuk dari user*
+👤 {first_name} (@{username})
+🆔 `{user_id}`
+
+📊 *Hasil pengiriman ke {len(CHANNELS)} channel:*
+✅ Sukses: {success_count}
+❌ Gagal: {failed_count}
+
+🔍 Detail:
+                """
+                
+                for r in results:
+                    status = "✅" if r['success'] else "❌"
+                    admin_msg += f"\n{status} {r['channel']}"
+                
+                send_message(ADMIN_ID, admin_msg)
         
         except Exception as e:
             logger.error(f"Process error: {e}")
